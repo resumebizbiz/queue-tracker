@@ -126,7 +126,7 @@
 
   <script>
     // PASTE YOUR PUBLISHED GOOGLE SHEET CSV LINK BETWEEN THE QUOTES BELOW
-    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrTJRg9CsSwXZ7uzNxXcTNPsf5nQf4q4BbO3WmTwnE0nWVCgksXvD7vt9bujPLIDbKUXuq9Od1QhA0/pub?gid=1134945047&single=true&output=csv";
+    const SHEET_CSV_URL = "PASTE_YOUR_PUBLISHED_CSV_LINK_HERE";
 
     function statusClass(status) {
       const s = status.toLowerCase();
@@ -137,11 +137,25 @@
     }
 
     function parseCSV(text) {
-      // Simple CSV parser sufficient for two clean columns (Queue Number, Status)
+      // Simple CSV parser sufficient for three clean columns (Queue Number, Status, Delivered At)
       return text
         .trim()
         .split("\n")
         .map(row => row.split(",").map(cell => cell.trim().replace(/^"|"$/g, "")));
+    }
+
+    // How many hours after being marked "Delivered" before a row disappears
+    // from the public tracker. Data is never deleted from the Sheet itself —
+    // this only affects what's displayed here.
+    const HIDE_DELIVERED_AFTER_HOURS = 36;
+
+    function shouldHide(status, deliveredAtRaw) {
+      if (!status || !status.toLowerCase().includes("delivered")) return false;
+      if (!deliveredAtRaw) return false; // no timestamp yet, show it
+      const deliveredAt = new Date(deliveredAtRaw);
+      if (isNaN(deliveredAt.getTime())) return false;
+      const hoursSince = (Date.now() - deliveredAt.getTime()) / (1000 * 60 * 60);
+      return hoursSince > HIDE_DELIVERED_AFTER_HOURS;
     }
 
     async function loadQueue() {
@@ -159,8 +173,10 @@
         const text = await res.text();
         const rows = parseCSV(text);
 
-        // Assume first row is header: Queue Number, Status
-        const dataRows = rows.slice(1).filter(r => r[0] && r[0].trim() !== "");
+        // Header row: Queue Number, Status, Delivered At
+        const dataRows = rows.slice(1)
+          .filter(r => r[0] && r[0].trim() !== "")
+          .filter(r => !shouldHide(r[1], r[2]));
 
         if (dataRows.length === 0) {
           listEl.innerHTML = '<div class="empty">No active orders right now.</div>';
