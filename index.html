@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Order Queue Status</title>
+<style>
+  :root {
+    --bg: #fafaf8;
+    --card-bg: #ffffff;
+    --border: #e4e2dc;
+    --text-main: #1f1f1d;
+    --text-muted: #6b6964;
+    --accent: #1f4e79;
+    --submitted: #8a8780;
+    --awaiting: #b8860b;
+    --in-progress: #1f4e79;
+    --delivered: #2e7d4f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-main);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px 16px 60px;
+  }
+
+  .wrap {
+    max-width: 560px;
+    margin: 0 auto;
+  }
+
+  header {
+    margin-bottom: 28px;
+    text-align: center;
+  }
+
+  header h1 {
+    font-size: 1.4rem;
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+
+  header p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.92rem;
+  }
+
+  .updated {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    margin-bottom: 20px;
+  }
+
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .row {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .queue-num {
+    font-weight: 700;
+    font-size: 1.05rem;
+    min-width: 44px;
+    color: var(--text-main);
+  }
+
+  .status-pill {
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .status-submitted { background: #f0efeb; color: var(--submitted); }
+  .status-awaiting   { background: #fbf1de; color: var(--awaiting); }
+  .status-progress    { background: #e7eef5; color: var(--in-progress); }
+  .status-delivered  { background: #e6f3ec; color: var(--delivered); }
+
+  .empty, .error {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px 16px;
+    font-size: 0.92rem;
+  }
+
+  .error { color: #a33; }
+
+  footer {
+    text-align: center;
+    margin-top: 32px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Order Queue Status</h1>
+      <p>Check your queue number and current status below.</p>
+    </header>
+    <div class="updated" id="updated"></div>
+    <div class="list" id="list">
+      <div class="empty">Loading queue…</div>
+    </div>
+    <footer>Status updates as orders are processed. No personal details are shown here.</footer>
+  </div>
+
+  <script>
+    // PASTE YOUR PUBLISHED GOOGLE SHEET CSV LINK BETWEEN THE QUOTES BELOW
+    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrTJRg9CsSwXZ7uzNxXcTNPsf5nQf4q4BbO3WmTwnE0nWVCgksXvD7vt9bujPLIDbKUXuq9Od1QhA0/pub?gid=1134945047&single=true&output=csv";
+
+    function statusClass(status) {
+      const s = status.toLowerCase();
+      if (s.includes("delivered")) return "status-delivered";
+      if (s.includes("progress") || s.includes("paid")) return "status-progress";
+      if (s.includes("awaiting")) return "status-awaiting";
+      return "status-submitted";
+    }
+
+    function parseCSV(text) {
+      // Simple CSV parser sufficient for two clean columns (Queue Number, Status)
+      return text
+        .trim()
+        .split("\n")
+        .map(row => row.split(",").map(cell => cell.trim().replace(/^"|"$/g, "")));
+    }
+
+    async function loadQueue() {
+      const listEl = document.getElementById("list");
+      const updatedEl = document.getElementById("updated");
+
+      if (!SHEET_CSV_URL || SHEET_CSV_URL.includes("PASTE_YOUR")) {
+        listEl.innerHTML = '<div class="error">Tracker not yet connected. (Add your published Sheet CSV link in the code.)</div>';
+        return;
+      }
+
+      try {
+        const res = await fetch(SHEET_CSV_URL + "&cachebust=" + Date.now());
+        if (!res.ok) throw new Error("Network response was not ok");
+        const text = await res.text();
+        const rows = parseCSV(text);
+
+        // Assume first row is header: Queue Number, Status
+        const dataRows = rows.slice(1).filter(r => r[0] && r[0].trim() !== "");
+
+        if (dataRows.length === 0) {
+          listEl.innerHTML = '<div class="empty">No active orders right now.</div>';
+        } else {
+          listEl.innerHTML = dataRows.map(r => {
+            const num = r[0] || "—";
+            const status = r[1] || "Submitted";
+            return `
+              <div class="row">
+                <div class="queue-num">#${num}</div>
+                <div class="status-pill ${statusClass(status)}">${status}</div>
+              </div>
+            `;
+          }).join("");
+        }
+
+        updatedEl.textContent = "Last checked: " + new Date().toLocaleTimeString();
+      } catch (err) {
+        listEl.innerHTML = '<div class="error">Could not load queue right now. Please refresh or try again shortly.</div>';
+      }
+    }
+
+    loadQueue();
+    // Refresh automatically every 60 seconds while the page is open
+    setInterval(loadQueue, 60000);
+  </script>
+</body>
+</html>
